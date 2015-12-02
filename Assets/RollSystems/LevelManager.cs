@@ -12,14 +12,16 @@ namespace RollSystems
 	{
 
         public float Seed;                                      // Seed for the random generation of the level
-        public List<GameItemCollection> TerrainItems;
-        public List<GameItemCollection> BoardItems;
+        public List<GameObject> GameAssets;
+
+        private List<GameItemCollection> TerrainItems;
+        private List<GameItemCollection> BoardItems;
 
         public Vector2 GameMapSize = new Vector2(100, 100);        //public Count wallCount = new Count (5, 9);						//Lower and upper limit for our random number of walls per level.
 		public GameObject exit;											//Prefab to spawn for exit.
 
 		
-		private Transform boardHolder;									//A variable to store a reference to the transform of our Board object.
+		public Transform BoardHolder;									//A variable to store a reference to the transform of our Board object.
 		private List <Vector3> gridPositions = new List <Vector3> ();	//A list of possible locations to place tiles.
 		
 		
@@ -43,43 +45,110 @@ namespace RollSystems
 		
 		
 		//Sets up the outer walls and floor (background) of the game board.
-		void BoardSetup ()
+		public void BoardSetup ()
 		{
-			//Instantiate Board and set boardHolder to its transform.
-			boardHolder = new GameObject ("Board").transform;
-			
+            var bhc = BoardHolder.childCount;
+            while (BoardHolder.childCount > 0)
+            {
+                GameObject.DestroyImmediate(BoardHolder.GetChild(0).gameObject);
+                bhc = BoardHolder.childCount;
+            }
+            
 			//Loop along x axis, starting from -1 (to fill corner) with floor or outerwall edge tiles.
 			for(int x = -1; x < GameMapSize.x + 1; x++)
 			{
 				//Loop along y axis, starting from -1 to place floor or outerwall tiles.
 				for(int y = -1; y < GameMapSize.y + 1; y++)
 				{
-                    var floorTiles = TerrainItems.Where(tic => tic.CollectionType == ItemCollectionTypes.Floor).
-                        FirstOrDefault().GameItems;
+                    var floorTiles = TerrainItems.FirstOrDefault(tic => tic.CollectionType == ItemCollectionTypes.Base).
+                        GameItems.FirstOrDefault(i => {
+                            BaseItem baseItem = i as BaseItem;
+                            return baseItem.Type == BaseTypes.Floor;
+                        });
 
-                    var outerWallTiles = TerrainItems.Where(ti => ti.CollectionType == ItemCollectionTypes.Edge).
-                        FirstOrDefault().GameItems;
+                    var outerWallTiles = TerrainItems.FirstOrDefault(tic => tic.CollectionType == ItemCollectionTypes.Base).
+                        GameItems.FirstOrDefault(i => {
+                            var baseItem = i as BaseItem;
+                            return baseItem.Type == BaseTypes.Edge;
+                        });
 
                     //Choose a random tile from our array of floor tile prefabs and prepare to instantiate it.
-                    GameObject toInstantiate = floorTiles[Random.Range (0,floorTiles.Count)].Items.FirstOrDefault();
+                    GameObject toInstantiate = floorTiles.Items.ElementAt(Random.Range(0, floorTiles.Items.Count()));
 					
 					//Check if we current position is at board edge, if so choose a random outer wall prefab from our array of outer wall tiles.
 					if(x == -1 || x == GameMapSize.x || y == -1 || y == GameMapSize.y)
-						toInstantiate = outerWallTiles [Random.Range (0, outerWallTiles.Count)].Items.FirstOrDefault();
+						toInstantiate = outerWallTiles.Items.ElementAt(Random.Range(0, outerWallTiles.Items.Count()));
 					
 					//Instantiate the GameObject instance using the prefab chosen for toInstantiate at the Vector3 corresponding to current grid position in loop, cast it to GameObject.
 					GameObject instance =
 						Instantiate (toInstantiate, new Vector3 (x, y, 0f), Quaternion.identity) as GameObject;
 					
-					//Set the parent of our newly instantiated object instance to boardHolder, this is just organizational to avoid cluttering hierarchy.
-					instance.transform.SetParent (boardHolder);
+					//Set the parent of our newly instantiated object instance to BoardHolder, this is just organizational to avoid cluttering hierarchy.
+					instance.transform.SetParent (BoardHolder);
 				}
 			}
 		}
-		
-		
-		//RandomPosition returns a random position from our list gridPositions.
-		Vector3 RandomPosition ()
+
+        private void GenerateRandomItems()
+        {
+            TerrainItems = new List<GameItemCollection> {
+                new GameItemCollection() {
+                    CollectionType = ItemCollectionTypes.Base,
+                    GameItems = new List<Item> {
+                        new BaseItem() { Items = 
+                            GameAssets.Where(ga => ga.name.StartsWith("OuterWall")).ToList(),
+                        Type = BaseTypes.Edge },
+                        new BaseItem() { Items =
+                            GameAssets.Where(ga => ga.name.StartsWith("Floor")).ToList(),
+                        Type = BaseTypes.Floor }
+
+                    }
+                },
+                new GameItemCollection() {
+                    Min = 4,
+                    Max = 10,
+                    CollectionType = ItemCollectionTypes.Terrain,
+                                        GameItems = new List<Item> {
+                        new TerrainItem() { Items =
+                            GameAssets.Where(ga => ga.name.StartsWith("Wall")).ToList(),
+                        Type = TerrainTypes.Wall }
+                    }
+
+                }
+
+            };
+
+            BoardItems = new List<GameItemCollection> {
+                new GameItemCollection() {
+                Min = 4,
+                Max = 10,
+                CollectionType = ItemCollectionTypes.Items,
+                GameItems = new List<Item> {
+                        new GameItem() { Items =                             
+                        GameAssets.Where(ga => ga.name.StartsWith("Food") || ga.name.StartsWith("Soda")).ToList(),
+                    Type =  GameItemTypes.Food }
+                    }
+
+                },
+                new GameItemCollection() {
+                Min = 2,
+                Max = 5,
+                CollectionType = ItemCollectionTypes.NPC,
+                GameItems = new List<Item> {
+                        new NpcItem() { Items =
+                        GameAssets.Where(ga => ga.name.StartsWith("Enemy")).ToList(),
+                    Type =  NpcTypes.Enemy }
+                    }
+
+                }
+
+
+            };
+        }
+
+
+        //RandomPosition returns a random position from our list gridPositions.
+        Vector3 RandomPosition ()
 		{
 			//Declare an integer randomIndex, set it's value to a random number between 0 and the count of items in our List gridPositions.
 			int randomIndex = Random.Range (0, gridPositions.Count);
@@ -111,8 +180,10 @@ namespace RollSystems
 				GameObject tileChoice = tileArray[Random.Range (0, tileArray.Length)];
 				
 				//Instantiate tileChoice at the position returned by RandomPosition with no change in rotation
-				Instantiate(tileChoice, randomPosition, Quaternion.identity);
-			}
+				var instance = Instantiate(tileChoice, randomPosition, Quaternion.identity) as GameObject;
+                
+                instance.transform.SetParent(BoardHolder);
+            }
 		}
 		
 		
@@ -124,15 +195,17 @@ namespace RollSystems
                --- this will be replaced entirely by your on model of scene setup. 
             */
 
+            // Generates the random Items
+            GenerateRandomItems();
 
-			//Creates the outer walls and floor.
-			BoardSetup ();
+            //Creates the outer walls and floor.
+            BoardSetup();
 
             //Reset our list of gridpositions.
             InitialiseList();
 
             // Populate Terrian
-            foreach (var itemCollection in TerrainItems.Where(tic => tic.CollectionType != ItemCollectionTypes.Edge))
+            foreach (var itemCollection in TerrainItems.Where(tic => tic.CollectionType != ItemCollectionTypes.Base))
             {
                 foreach (var item in itemCollection.GameItems)
                 {
@@ -161,7 +234,9 @@ namespace RollSystems
 			//LayoutObjectAtRandom (enemyTiles, enemyCount, enemyCount);
 			
 			//Instantiate the exit tile in the upper right hand corner of our game board
-			Instantiate (exit, new Vector3 (GameMapSize.x - 1, GameMapSize.y - 1, 0f), Quaternion.identity);
-		}
+			var instance = Instantiate (exit, new Vector3 (GameMapSize.x - 1, GameMapSize.y - 1, 0f), Quaternion.identity) as GameObject;
+            instance.transform.SetParent(BoardHolder);
+
+        }
 	}
 }
